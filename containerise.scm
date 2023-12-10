@@ -7,6 +7,18 @@
   #:export (containerise-service-type
 	    containerise-service))
 
+(define-syntax define-macro*
+  (syntax-rules ()
+    [(define-macros* (name args ...)
+       body)
+     (define-macro (name . rest)
+       (apply (lambda* (args ...) body) rest))]))
+
+(define-syntax gnu:service
+  (syntax-rules ()
+    [(gnu:service args ...)
+     (service args ...)]))
+
 (define* (containerise-service service
 			       #:key
 			       (mounts %container-file-systems)
@@ -16,17 +28,22 @@
 			       (guest-gid 0)
 			       (relayed-signals (list SIGINT SIGTERM))
 			       (child-is-pid1? #t)
-			       (process-spawned-hook (const #t)))
-  (service (containerise-service-type (service-kind service)
-				      mounts
-				      #:namespaces namespaces
-				      #:host-uids host-uids
-				      #:guest-uid guest-uid
-				      #:guest-gid guest-git
-				      #:relayed-signals relayed-signals
-				      #:child-is-pid? child-is-pid1?
-				      #:process-spawned-hook process-spawned-hook)
-	   (service-value service)))
+			       (process-spawned-hook #~(const #t)))
+  (gnu:service (containerise-service-type (service-kind service)
+     					  #:mounts mounts
+					  #:namespaces namespaces
+					  #:host-uids host-uids
+					  #:guest-uid guest-uid
+					  #:guest-gid guest-gid
+					  #:relayed-signals relayed-signals
+					  #:child-is-pid1? child-is-pid1?
+					  #:process-spawned-hook process-spawned-hook)
+	       (service-value service)))
+
+(define-syntax gnu:service-type
+  (syntax-rules ()
+    [(gnu:service-type args ...)
+     (service-type args ...)]))
 
 (define* (containerise-service-type service-type
 				    #:key
@@ -37,8 +54,8 @@
 				    (guest-gid 0)
 				    (relayed-signals (list SIGINT SIGTERM))
 				    (child-is-pid1? #t)
-				    (process-spawned-hook (const #t)))
-  (service-type
+				    (process-spawned-hook #~(const #t)))
+  (gnu:service-type
    (inherit service-type)
    (extensions
     (map (lambda (ext)
@@ -52,18 +69,25 @@
 		    (map (lambda (service)
 			   (shepherd-service
 			    (inherit service)
-			    (start #~(begin
-				       (use-modules (gnu build linux-container))
-				       (call-with-container #$mounts
-					 (lambda () #$(shepherd-service-start service))
-					 #:namespaces namespaces
-					 #:host-uids host-uids
-					 #:guest-uid guest-uid
-					 #:guest-gid guest-git
-					 #:relayed-signals relayed-signals
-					 #:child-is-pid? child-is-pid1?
-					 #:process-spawned-hook process-spawned-hook)
-				       ))))
-			 (apply args compute))))
+			    (start (with-imported-modules
+				    '((gnu build linux-container))
+				    #~(begin
+					(use-modules (gnu build linux-container))
+					(let ([proc #$(shepherd-service-start service)])
+					  (lambda args
+					    (call-with-container
+					     #$(if (gexp? mounts)
+						    mounts
+						    (gexp (ungexp mounts)))
+					     (lambda () (apply proc args))
+					     #:namespaces #$namespaces
+					     #:host-uids #$host-uids
+					     #:guest-uid #$guest-uid
+					     #:guest-gid #$guest-gid
+					     #:relayed-signals #$relayed-signals
+					     #:child-is-pid? #$child-is-pid1?
+					     #:process-spawned-hook #$process-spawned-hook))))
+				    ))))
+			 (apply compute args))))
 		 ext)))
 	 (service-type-extensions service-type)))))
