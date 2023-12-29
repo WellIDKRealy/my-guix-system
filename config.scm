@@ -18,9 +18,18 @@
 	     ;; Misc
 	     (srfi srfi-1))
 
-(use-package-modules wm search linux)
-(use-service-modules cups desktop networking ssh xorg virtualization web
-		     linux pm databases auditd)
+(use-package-modules wm search linux vpn)
+(use-service-modules cups
+		     desktop
+		     networking
+		     ssh
+		     xorg
+		     virtualization
+		     web
+		     linux
+		     pm
+		     databases
+		     auditd)
 
 ;; PAM
 
@@ -84,90 +93,55 @@
 
  ;; guix system search <service>
  (services
-  (append (list (service gnome-desktop-service-type)
-		(service openssh-service-type
-			 (openssh-configuration
-			  (x11-forwarding? #t)))
-		(service tor-service-type)
-		;; (containerise-service
-		;;  (service python-server-service-type)
-		;;  #:mounts (with-imported-modules
-		;;	   '((gnu system file-systems)
-		;;	     (gnu build linux-container))
-		;;	   #~(begin
-		;;	       (use-modules (gnu system file-systems)
-		;;			    (gnu build linux-container))
-		;;	       (cons* (specification->file-system-mapping "/tmp" #t)
-		;;                       %container-file-systems))))
-		;; (service ipfs-service-type)
-		(service cups-service-type)
-		(service libvirt-service-type
-			 (libvirt-configuration
-			  (unix-sock-group "libvirt")))
-		(service virtlog-service-type
-			 ;;(virtlog-configuration)
-			 )
-		(set-xorg-configuration
-		 (xorg-configuration (keyboard-layout keyboard-layout)))
+  (append (list
+	   ;; Desktop
+	   (service gnome-desktop-service-type)
 
-		(service zram-device-service-type
-			 (zram-device-configuration
-			  (size "2G")
-			  (priority 2)))
-		(service earlyoom-service-type
-			 (earlyoom-configuration
-			  (avoid-regexp "firefox|icecat|guix|emacs")))
+	   (set-xorg-configuration
+	    (xorg-configuration (keyboard-layout keyboard-layout)))
 
-		(service tlp-service-type
-			 (tlp-configuration
-			  (tlp-default-mode "BAT")
-			  (start-charge-thresh-bat0 80)
-			  (stop-charge-thresh-bat0 80)))
-		(service thermald-service-type
-			 ;;(thermald-configuration)
-			 )
+	   ;; Network
+	   (simple-service 'wireguard-module
+			   kernel-module-loader-service-type
+			   '("wireguard"))
 
-		;; auth sufficient pam_wheel.so trust use_uid
-		(simple-service 'su-allow-wheel pam-root-service-type
-				(list pam-su-allow-wheel))
+	   (service openssh-service-type
+		    (openssh-configuration
+		     (x11-forwarding? #t)))
 
-		(simple-service 'block-undesirable-hosts hosts-service-type
-				(domains->block-list
-				 '("www.reddit.com"
-				   "old.reddit.com"
-				   "jbzd.com.pl"
-				   "memy.jeja.pl"
-				   "discord.com"
-				   "www.facebook.com"
-				   "balkansirl.net"
-				   )))
+	   (service tor-service-type)
 
-		;;		(service auditd-service-type
-		;;			 (auditd-configuration))
+	   (simple-service 'block-undesirable-hosts
+			   hosts-service-type
+			   (domains->block-list
+			    '("www.reddit.com"
+			      "old.reddit.com"
+			      "jbzd.com.pl"
+			      "memy.jeja.pl"
+			      "www.youtube.com"
+			      "discord.com"
+			      "www.facebook.com"
+			      "balkansirl.net")))
 
-		(udev-rules-service 'disable-touchpad
-				    (udev-rule
-				     "80-disable-touchscreen.rules"
-				     "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"056a\", ATTRS{idProduct}==\"00e6\", ATTR{authorized}=\"0\""))
-
-
-		(service mysql-service-type)
-		(service httpd-service-type
-			 (httpd-configuration
-			  (config
-			   (httpd-config-file
-			    (modules (cons*
-				      (httpd-module
-				       (name "proxy_module")
-				       (file "modules/mod_proxy.so"))
-				      (httpd-module
-				       (name "proxy_fcgi_module")
-				       (file "modules/mod_proxy_fcgi.so"))
-				      (httpd-module
-				       (name "userdir_module")
-				       (file "modules/mod_userdir.so"))
-				      %default-httpd-modules))
-			    (extra-config (list "\
+	   ;; (service ipfs-service-type)
+	   ;; XAMPP
+	   (service mysql-service-type)
+	   (service httpd-service-type
+		    (httpd-configuration
+		     (config
+		      (httpd-config-file
+		       (modules (cons*
+				 (httpd-module
+				  (name "proxy_module")
+				  (file "modules/mod_proxy.so"))
+				 (httpd-module
+				  (name "proxy_fcgi_module")
+				  (file "modules/mod_proxy_fcgi.so"))
+				 (httpd-module
+				  (name "userdir_module")
+				  (file "modules/mod_userdir.so"))
+				 %default-httpd-modules))
+		       (extra-config (list "\
 <FilesMatch \\.php$>
     SetHandler \"proxy:unix:/var/run/php-fpm.sock|fcgi://localhost/\"
 </FilesMatch>
@@ -177,10 +151,64 @@ Userdir disabled
 Userdir enabled maciej
 
 DirectoryIndex index.php index.phtml index.html index.htm"))))))
-		(service php-fpm-service-type
-			 (php-fpm-configuration
-			  (socket "/var/run/php-fpm.sock")
-			  (socket-group "httpd"))))
+	   (service php-fpm-service-type
+		    (php-fpm-configuration
+		     (socket "/var/run/php-fpm.sock")
+		     (socket-group "httpd")))
+
+
+	   ;; Printers
+	   (service cups-service-type)
+
+	   ;; Virtualization
+	   ;; (containerise-service
+	   ;;  (service python-server-service-type)
+	   ;;  #:mounts (with-imported-modules
+	   ;;	   '((gnu system file-systems)
+	   ;;	     (gnu build linux-container))
+	   ;;	   #~(begin
+	   ;;	       (use-modules (gnu system file-systems)
+	   ;;			    (gnu build linux-container))
+	   ;;	       (cons* (specification->file-system-mapping "/tmp" #t)
+	   ;;                       %container-file-systems))))
+
+	   (service libvirt-service-type
+		    (libvirt-configuration
+		     (unix-sock-group "libvirt")))
+
+	   (service virtlog-service-type)
+
+	   ;; RAM
+	   (service zram-device-service-type
+		    (zram-device-configuration
+		     (size "2G")
+		     (priority 2)))
+
+	   (service earlyoom-service-type
+		    (earlyoom-configuration
+		     (avoid-regexp "firefox|icecat|guix|emacs")))
+
+	   ;; Battery
+	   (service tlp-service-type
+		    (tlp-configuration
+		     (tlp-default-mode "BAT")
+		     (start-charge-thresh-bat0 80)
+		     (stop-charge-thresh-bat0 80)))
+	   (service thermald-service-type)
+
+	   ;; AUTH
+	   ;; auth sufficient pam_wheel.so trust use_uid
+	   (simple-service 'su-allow-wheel pam-root-service-type
+			   (list pam-su-allow-wheel))
+
+	   ;;		(service auditd-service-type
+	   ;;			 (auditd-configuration))
+
+	   ;; Hardware
+	   (udev-rules-service 'disable-touchpad
+			       (udev-rule
+				"80-disable-touchscreen.rules"
+				"SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"056a\", ATTRS{idProduct}==\"00e6\", ATTR{authorized}=\"0\"")))
 	  (modify-services %desktop-services
 			   ;; enable wayland
 			   (gdm-service-type config
@@ -202,8 +230,7 @@ DirectoryIndex index.php index.phtml index.html index.htm"))))))
 			   ;; Remove mozilla spyware
 			   (delete geoclue-service-type)
 			   ;; And useless modem service
-			   (delete modem-manager-service-type)
-			   )))
+			   (delete modem-manager-service-type))))
 
  (bootloader (bootloader-configuration
 	      (bootloader grub-bootloader)
